@@ -38,9 +38,15 @@ export function estimateElasticity(rows: Row[], sku: string) {
 
 export function simulate(rows: Row[], priceChangePct: number, elasticity: number) {
   const base = summarize(rows), factor = 1 + priceChangePct/100, qtyFactor = Math.max(0, Math.pow(factor, elasticity));
-  let revenue = 0, grossProfit = 0, units = 0;
-  for (const r of rows) { const u = r.units*qtyFactor, p = r.price*factor; units += u; revenue += p*u; grossProfit += (p-r.unit_cost)*u; }
-  return { revenue, grossProfit, units, revenueDelta: revenue-base.revenue, profitDelta: grossProfit-base.grossProfit, qtyDelta: units-base.units };
+  let revenue = 0, grossProfit = 0, units = 0, grossProfitAtSameUnits = 0;
+  for (const r of rows) {
+    const u = r.units * qtyFactor, p = r.price * factor;
+    units += u; revenue += p*u; grossProfit += (p-r.unit_cost)*u; grossProfitAtSameUnits += (p-r.unit_cost)*r.units;
+  }
+  const breakEvenQtyFactor = grossProfitAtSameUnits > 0 ? base.grossProfit / grossProfitAtSameUnits : Number.POSITIVE_INFINITY;
+  const breakEvenVolumeChangePct = Number.isFinite(breakEvenQtyFactor) ? (breakEvenQtyFactor - 1) * 100 : null;
+  const simulatedVolumeChangePct = base.units ? (units/base.units - 1) * 100 : 0;
+  return { revenue, grossProfit, units, revenueDelta: revenue-base.revenue, profitDelta: grossProfit-base.grossProfit, qtyDelta: units-base.units, breakEvenVolumeChangePct, simulatedVolumeChangePct, protectsGrossProfit: grossProfit >= base.grossProfit };
 }
 
 export function skuInsights(rows: Row[]) {
