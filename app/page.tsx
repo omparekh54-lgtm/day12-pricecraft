@@ -1,0 +1,78 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { parseCsv, simulate, skuInsights, summarize, Row } from '../lib/pricing';
+
+const demo = `date,sku,price,units,unit_cost,list_price,segment\n2026-01-01,SKU-A,100,120,62,110,Retail\n2026-02-01,SKU-A,105,112,62,110,Retail\n2026-03-01,SKU-A,110,101,62,110,Retail\n2026-04-01,SKU-A,95,132,62,110,Retail\n2026-05-01,SKU-A,108,104,62,110,Retail\n2026-06-01,SKU-A,102,116,62,110,Retail\n2026-01-01,SKU-B,60,210,34,65,Online\n2026-02-01,SKU-B,62,199,34,65,Online\n2026-03-01,SKU-B,65,184,34,65,Online\n2026-04-01,SKU-B,58,228,34,65,Online\n2026-05-01,SKU-B,64,190,34,65,Online\n2026-06-01,SKU-B,61,205,34,65,Online`;
+
+function money(v: number) {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v);
+}
+
+export default function Page() {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [change, setChange] = useState(5);
+  const [manualE, setManualE] = useState(-1.2);
+  const [msg, setMsg] = useState('');
+  const summary = useMemo(() => summarize(rows), [rows]);
+  const insights = useMemo(() => skuInsights(rows), [rows]);
+  const sim = useMemo(() => rows.length ? simulate(rows, change, manualE) : null, [rows, change, manualE]);
+
+  function ingest(text: string) {
+    const parsed = parseCsv(text);
+    setRows(parsed);
+    setMsg(parsed.length ? `${parsed.length} valid rows loaded locally in your browser.` : 'No valid rows found. Check the input template.');
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob([demo], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'pricecraft-template.csv'; a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  function exportPlan() {
+    if (!sim) return;
+    const lines = ['metric,value', `price_change_pct,${change}`, `assumed_elasticity,${manualE}`, `projected_revenue,${sim.revenue}`, `projected_gross_profit,${sim.grossProfit}`, `projected_units,${sim.units}`, `profit_delta,${sim.profitDelta}`];
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = 'pricecraft-scenario.csv'; a.click();
+  }
+
+  return <main>
+    <section className="hero">
+      <div><span className="eyebrow">DAY 12 · PRICING DECISION SCIENCE</span><h1>PriceCraft</h1><p className="lede">Find margin leakage, inspect price sensitivity, and stress-test price moves — without pretending observational history proves causality.</p></div>
+      <div className="trust"><b>Privacy-first</b><span>Your CSV stays in the browser.</span></div>
+    </section>
+
+    {!rows.length ? <section className="card uploader">
+      <h2>Start with your sales history</h2>
+      <p>Required: <code>date, sku, price, units, unit_cost</code>. Optional: <code>list_price, segment</code>.</p>
+      <label className="drop">Drop or choose CSV<input type="file" accept=".csv" onChange={async e => { const f = e.target.files?.[0]; if (f) ingest(await f.text()); }} /></label>
+      <div className="actions"><button onClick={() => ingest(demo)}>Try interactive demo</button><button className="ghost" onClick={downloadTemplate}>Download template</button></div>
+      {msg && <p className="status">{msg}</p>}
+    </section> : <>
+      <section className="metrics">
+        <article><span>Observed revenue</span><strong>{money(summary.revenue)}</strong><small>Known from data</small></article>
+        <article><span>Gross profit</span><strong>{money(summary.grossProfit)}</strong><small>Known from cost + sales</small></article>
+        <article><span>Gross margin</span><strong>{(summary.marginPct * 100).toFixed(1)}%</strong><small>Known from data</small></article>
+        <article><span>Discount leakage</span><strong>{money(summary.discountLeakage)}</strong><small>Only where list_price exists</small></article>
+      </section>
+
+      <section className="grid">
+        <div className="card">
+          <div className="sectionHead"><div><span className="eyebrow">OBSERVED + ESTIMATED</span><h2>SKU pricing signals</h2></div><button className="ghost" onClick={() => { setRows([]); setMsg(''); }}>Load another file</button></div>
+          <div className="table"><div className="tr th"><span>SKU</span><span>Avg price</span><span>Margin</span><span>Elasticity</span><span>Fit</span></div>{insights.map(x => <div className="tr" key={x.sku}><b>{x.sku}</b><span>{money(x.avgPrice)}</span><span>{(x.marginPct * 100).toFixed(1)}%</span><span>{x.elasticity ? x.elasticity.elasticity.toFixed(2) : 'Need more variation'}</span><span>{x.elasticity ? `R² ${Math.max(0, x.elasticity.r2).toFixed(2)}` : '—'}</span></div>)}</div>
+          <div className="note"><b>Interpret carefully:</b> the elasticity estimate is a simple log-log association. Promotions, seasonality, stockouts, competitors and channel mix can confound it.</div>
+        </div>
+
+        <div className="card"><span className="eyebrow">SIMULATION — NOT CAUSAL</span><h2>Price move lab</h2>
+          <label>Price change <b>{change > 0 ? '+' : ''}{change}%</b><input type="range" min="-20" max="20" value={change} onChange={e => setChange(Number(e.target.value))} /></label>
+          <label>Assumed elasticity <b>{manualE.toFixed(1)}</b><input type="range" min="-3" max="0" step="0.1" value={manualE} onChange={e => setManualE(Number(e.target.value))} /></label>
+          {sim && <div className="scenario"><div><span>Projected revenue</span><strong>{money(sim.revenue)}</strong><em className={sim.revenueDelta >= 0 ? 'up' : 'down'}>{money(sim.revenueDelta)} vs observed</em></div><div><span>Projected gross profit</span><strong>{money(sim.grossProfit)}</strong><em className={sim.profitDelta >= 0 ? 'up' : 'down'}>{money(sim.profitDelta)} vs observed</em></div><div><span>Projected units</span><strong>{Math.round(sim.units).toLocaleString()}</strong><em>{Math.round(sim.qtyDelta).toLocaleString()} vs observed</em></div></div>}
+          <button onClick={exportPlan}>Export scenario</button>
+        </div>
+      </section>
+
+      <section className="card honesty"><h2>Confidence & honesty layer</h2><div><b>Known</b><p>Revenue, units, cost, margin and observed discounts come directly from the uploaded rows.</p></div><div><b>Statistical estimate</b><p>SKU elasticity is a simple observational log-log association with sample size and fit shown.</p></div><div><b>Simulation</b><p>The price-move lab applies your assumed elasticity. It is not a forecast of causal lift.</p></div><div><b>Insufficient evidence</b><p>Without a valid experiment or causal design, PriceCraft will not claim that changing price will cause the simulated outcome.</p></div></section>
+    </>}
+  </main>;
+}
